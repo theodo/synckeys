@@ -1,0 +1,28 @@
+---
+acl:
+
+  - name: project
+    servers:
+      - myserver.com
+    users:
+      fabriceb:
+        sudoer: True
+        authorized_keys:
+          - fabriceb
+
+  - name: project2
+    servers:
+      - 11.22.33.44  # web1
+      - 11.22.33.55 # web2
+    users:
+      root:
+        sudoer: True
+        authorized_keys:
+          - fabriceb
+          - simonc
+          - marekk
+          - yulingc
+          - benjaminb
+          - clementrp
+          - etienned
+          - emilem

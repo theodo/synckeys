@@ -1,0 +1,9 @@
+---
+
+keys:
+  fabriceb:
+    key: ssh-rsa XXXXXXXXXXAAAAB3NzaC1yc2EAAAADAQABAAABAQD3XkTBzQ2vceoR7VfQmzeLx3qgE37vJYW39j1igoTLczJJ8M5LgqHTBLWhL0Zse3lDqFrQbr9347YN417HzfO1QF
+    expires: ~
+  reynaldm:
+    key: ssh-rsa YYYYYYYYYYAAAAB3NzaC1yc2EAAAADAQABAAABAQD3XkTBzQ2vceoR7VfQmzeLx3qgE37vJYW39j1igoTLczJJ8M5LgqHTBLWhL0Zse3lDqFrQbr9347YN417HzfO1QF
+    expires: ~
