@@ -1,7 +1,7 @@
-SSHKEY
-======
+synckeys
+========
 
-Le but du projet sshkey est de faciliter les interventions des Theodoers
+Le but du projet synckeys est de faciliter les interventions des Theodoers
 sur les serveurs de nos projets tout en veillant à respecter certaines
 règles de sécurité.
 
@@ -71,30 +71,15 @@ d’expiration:
 
 4. Merger la PR sur ce repo et demander à quelqu’un qui a déjà accès au
    serveur d’executer la commande suivante (en local dans le répertoire
-   du dossier sshkey, après avoir mis à jour son repo):
+   du dossier synckeys, après avoir mis à jour son repo):
 
    ::
 
        python synckeys.py --key-name fabriceb
 
-Master Keys
------------
-
-Les clés de Fabrice et des développeurs actuels du support ont le status
-de *master keys*. Elles ont accès à tous les serveurs.
-
-Pour définir une *master key*, il suffit de rajouter le paramètre
-``master: True`` sur celle-ci.
-
-Les *master keys* sont injectées dans les users de chaque serveur
-automatiquement. Il n’est donc pas nécessaire de les rajouter dans les
-clés autorisées de son projet.
-
 TODO :memo:
 -----------
 
--  [x] Ajouter une option pour qu’une clé d’un utilisateur soit sur tous
-   les serveurs (fabriceb)
 -  [x] Possibilité de supprimer d’anciennnes clés
 -  [ ] Synchroniser tous les accès d’un user d’un coup (changer le
    module authorized\_key)

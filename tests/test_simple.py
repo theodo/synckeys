@@ -1,6 +1,6 @@
 import unittest
 
-import sshkey
+import synckeys
 
 
 class TestSimple(unittest.TestCase):
