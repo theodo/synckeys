@@ -79,14 +79,14 @@ class Project:
         return None
 
 
-def sync_project(project, keys, keyname, master_key_names):
+def sync_project(project, keys, keyname):
 
     sudoer_account = project.get_sudoer_account(keyname)
 
     logger.info('Syncing "' + project.name + '" using key "' + keyname + '"')
 
     for user in project.users:
-        if user.is_authorized(keyname) or keyname in master_key_names:
+        if user.is_authorized(keyname):
             # we have direct access to this user, no need to use sudo
             remote_user = user.name
             use_sudo = False
@@ -102,38 +102,36 @@ def sync_project(project, keys, keyname, master_key_names):
         remote_pass = user.acl['password'] if 'password' in user.acl else None
 
         # if we are authorized, let us update this user's keys
-        # build the authorized_key_names, including the master keys (unique values)
-        authorized_key_names = list(set(user.acl['authorized_keys'] + master_key_names))
-        logger.info(' - ' + user.name + ' authorized for ' + ", ".join(authorized_key_names) + ' synced through ' + remote_user)
-
-        authorized_keys = []
-        expired_keys = []
-        for authorized_key_name in authorized_key_names:
-            if not keys[authorized_key_name]['expires'] or keys[authorized_key_name]['expires'] > datetime.datetime.now().date():
-                authorized_keys.append(keys[authorized_key_name]['key'] + ' ' + authorized_key_name)
+        authorized_key_names = []
+        expired_key_names    = []
+        for key_name in user.acl['authorized_keys']:
+            if not keys[key_name]['expires'] or keys[key_name]['expires'] > datetime.datetime.now().date():
+                authorized_key_names.append(key_name)
             else:
-                expired_keys.append(keys[authorized_key_name]['key'])
+                expired_key_names.append(key_name)
 
-        push_keys(
-            host_list=project.servers,
-            remote_user=remote_user,
-            remote_pass=remote_pass,
-            use_sudo=use_sudo,
-            username=user.name,
-            keys=expired_keys,
-            delete=True
-        )
+        if len(expired_key_names) > 0:
+            push_keys(
+                host_list=project.servers,
+                remote_user=remote_user,
+                remote_pass=remote_pass,
+                use_sudo=use_sudo,
+                username=user.name,
+                keys=[keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names],
+                delete=True
+            )
+            logger.info(' - ' + user.name + ' expired for ' + ", ".join(expired_key_names) + ' synced through ' + remote_user)
 
-        push_keys(
-            host_list=project.servers,
-            remote_user=remote_user,
-            remote_pass=remote_pass,
-            use_sudo=use_sudo,
-            username=user.name,
-            keys=authorized_keys
-        )
-
-        logger.info(' - ' + user.name + ' authorized for ' + ", ".join(authorized_key_names) + ' synced through ' + remote_user)
+        if len(authorized_key_names) > 0:
+            push_keys(
+                host_list=project.servers,
+                remote_user=remote_user,
+                remote_pass=remote_pass,
+                use_sudo=use_sudo,
+                username=user.name,
+                keys=[keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]
+            )
+            logger.info(' - ' + user.name + ' authorized for ' + ", ".join(authorized_key_names) + ' synced through ' + remote_user)
 
 
 def push_keys(host_list, remote_user, remote_pass, use_sudo, username, keys, delete=False):
@@ -159,27 +157,15 @@ def push_keys(host_list, remote_user, remote_pass, use_sudo, username, keys, del
         logger.error(ret['dark'])
 
 
-def get_master_key_names(keys):
-    master_key_names = []
-    for name in keys:
-        if 'master' in keys[name] and keys[name]['master'] == True:
-            master_key_names.append(name)
-
-    return master_key_names;
 
 
 def sync_acl(acl, keys, keyname, project_name=None):
-    master_key_names = get_master_key_names(keys)
-
-    if (keyname in master_key_names):
-        logger.warning("*** WARNING: You are using the '%s' master key, you will access every server ***" % keyname)
-        time.sleep(3)
 
     for project_yaml in acl:
         project = Project(project_yaml)
         if project_name and project.name != project_name:
             continue
-        sync_project(project, keys, keyname, master_key_names)
+        sync_project(project, keys, keyname)
 
 
 def main(argv=None):
