@@ -1,89 +1,124 @@
+========
 synckeys
 ========
 
-Le but du projet synckeys est de faciliter les interventions des Theodoers
-sur les serveurs de nos projets tout en veillant à respecter certaines
-règles de sécurité.
+synckeys is a simple project to manage the deployment of ssh keys of multiple people on multiple servers.
 
-Ce repository centralise les clés ssh des theodoers dans le fichier
-:key: `keys.yml`_ et leurs droits sur les différents serveurs dans le
-fichier :lock: `acl.yml`_.
+The usage is quite simple:
+ * list all the ssh keys you want to manage in keys.yml
+ * list all the projects in acl.yml and link them to the corresponding authorized keys
+ * just run synckeys: all servers you are allowed to access will be synced with the correct keys
 
-Pour mettre à jour les clés de tous les serveurs sur lesquels on a les
-droits, lancer :
+The principles behind synckeys
+==============================
 
-::
 
-    python synckeys.py --key-name fabriceb
+What you see is what you get is more secure
+-------------------------------------------
+
+The list of projects is a straightforward yaml list:
+ * much more readable than a shell script or a fancy provisioning
+ * accessed much more often
+ * by more people (devs and sysadmins) you trust
+
+Therefore you can expect the magic of self-management to happen and avoid some common pitfalls:
+ * keys of people who are gone staying forever
+ * generic access keys to be passed around
+
+And many more of the things you can expect when smart people you trust are able to take action easily when they see something wrong.
+
+Every dev or sysadmin in the organisation can use it
+----------------------------------------------------
+
+The syncing rule is simple: if you have a certain access on a server, you can give the same access to somebody else. But you naturally cannot give yourself or another accesses you do not have.
+
+This might seem straightforward but this is not what you get when you use a solution like puppet, chef or ansible. These provisioning solutions are mostly run as root on the destination server, therefore disallowing a non-root user to contribute. Even if it is to give somebody else the access you are already trusted with.
+
+
 
 Installation
-------------
+============
 
-Ce projet nécessite d’avoir déjà installé ``python`` et ``ansible`` (v
-1.9.0.1) sur sa machine.
+   ::
 
-Les serveurs
-------------
+       sudo pip install synckeys
 
-Le fichier :lock: `acl.yml`_ liste les serveurs, leurs utilisateurs (au
-sens unix, e.g. www-data, operator) et les clés autorisées de la façon
-suivante:
 
-::
+Configuration
+=============
 
-      - name: copadia
-        servers:
-          - copadia.com
-          - preprod.copadia.com
-        users:
-          operator:
-            sudoer: True
-            authorized_keys:
-              - simonc
-              - fabriceb
-              - dev_support
+Create a :key: `keys.yml` file
+---------------------------------
 
-Ajouter une clé à un serveur
-----------------------------
-
-1. Ajouter sa clé à :key: `keys.yml`_.
-
-Pour ceux qui savent quand ils vont partir, ne pas oublier la date
-d’expiration:
 
 ::
 
         fabriceb:
             key: ssh-rsa AAAA...ffY5+++j
-            expires: 2015-04-01
+            expires: ~
+        simonc:
+            key: ssh-rsa AABB...ffY5+++j
+            expires: 2015-12-31
+            
+            
+Create a :lock: `acl.yml` file
+---------------------------------
 
-2. Ajouter sa clé au serveur voulu dans :lock: `acl.yml`_. Vérifier que
-   la clé de **l’architecte du projet** est bien présente. Les
-   développeurs du support y auront automatiquement accès grâce au
-   mécanisme de `master key`_.
 
-3. Si le serveur n’est pas encore présent dans :lock: `acl.yml`_,
-   demander à Synalabs d’ajouter la clé de l’architecte au serveur
+::
 
-    **ATTENTION** : il ne faut pas que la clé soit ajoutée au
-    provisioning (via PR) au projet, sinon elle ne sera plus gérée par
-    ce repository
+      - name: superproject
+        servers:
+          - front.superproject.com
+          - db.superproject.com
+        users:
+          ubuntu:
+            sudoer: True
+            authorized_keys:
+              - simonc
+              - fabriceb
+          www-data:
+            authorized_keys:
+              - simonc
+              - fabriceb
+              - reynaldm
+              - adrieng
+              
+      - name: otherproject
+        servers:
+          - 65.2.3.4
+        users:
+          root:
+            sudoer: True
+            authorized_keys:
+              - fabriceb
+          www-data:
+            authorized_keys:
+              - simonc
+              - fabriceb
+            
+            
 
-4. Merger la PR sur ce repo et demander à quelqu’un qui a déjà accès au
-   serveur d’executer la commande suivante (en local dans le répertoire
-   du dossier synckeys, après avoir mis à jour son repo):
+Usage
+=====
+
+Sync everything you are allowed to sync:
 
    ::
 
-       python synckeys.py --key-name fabriceb
+       synckeys --key-name yourkeyname
+       
+       
+Sync a specific project:
+
+   ::
+
+       synckeys --key-name yourkeyname --project superproject
+
 
 TODO :memo:
 -----------
 
--  [x] Possibilité de supprimer d’anciennnes clés
--  [ ] Synchroniser tous les accès d’un user d’un coup (changer le
-   module authorized\_key)
-
-.. _keys.yml: keys.yml
-.. _acl.yml: acl.yml
-.. _master key: #master-keys
+-  [x] Remove expired keys
+-  [ ] Remove all keys in keys.yml if they are on the server but not in acl.yml
+-  [ ] Add an option to erase all keys that are not explicitly listed in acl.yml
