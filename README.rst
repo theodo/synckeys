@@ -59,8 +59,8 @@ Create a :key: `keys.yml` file
         simonc:
             key: ssh-rsa AABB...ffY5+++j
             expires: 2015-12-31
-            
-            
+
+
 Create a :lock: `acl.yml` file
 ---------------------------------
 
@@ -83,7 +83,7 @@ Create a :lock: `acl.yml` file
               - fabriceb
               - reynaldm
               - adrieng
-              
+
       - name: otherproject
         servers:
           - 65.2.3.4
@@ -96,8 +96,8 @@ Create a :lock: `acl.yml` file
             authorized_keys:
               - simonc
               - fabriceb
-            
-            
+
+
 
 Usage
 =====
@@ -107,8 +107,8 @@ Sync everything you are allowed to sync:
    ::
 
        synckeys --key-name yourkeyname
-       
-       
+
+
 Sync a specific project:
 
    ::
@@ -117,7 +117,7 @@ Sync a specific project:
 
 
 TODO :memo:
------------
+===========
 
 -  [x] Remove expired keys
 -  [ ] Remove all keys in keys.yml if they are on the server but not in acl.yml

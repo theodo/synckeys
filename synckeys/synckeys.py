@@ -105,6 +105,10 @@ def sync_project(project, keys, keyname):
         authorized_key_names = []
         expired_key_names    = []
         for key_name in user.acl['authorized_keys']:
+            if not key_name in keys:
+                logger.error(key_name + ' missing from keys file')
+                continue
+
             if not keys[key_name]['expires'] or keys[key_name]['expires'] > datetime.datetime.now().date():
                 authorized_key_names.append(key_name)
             else:
