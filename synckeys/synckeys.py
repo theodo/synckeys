@@ -1,14 +1,21 @@
 #!/usr/bin/env python
 
-from ansible import utils
-import ansible.runner
+from ansible.parsing.dataloader import DataLoader
+from ansible.vars.manager import VariableManager
+from ansible.inventory.manager import InventoryManager
+from ansible.playbook.play import Play
+from ansible.executor.task_queue_manager import TaskQueueManager
+from collections import namedtuple
 import os
 import getpass
 import sys
 import logging
 import argparse
 import datetime
-import time
+import jinja2
+from tempfile import NamedTemporaryFile
+from ansible.plugins.callback import CallbackBase
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +50,14 @@ parser.add_argument(
 
 parser.add_argument(
     '--logging-level',
-    default = 'INFO'
+    default='INFO'
+)
+
+parser.add_argument(
+    '--dry-run',
+    dest='dry_run',
+    action="store_true",
+    default=False
 )
 
 
@@ -79,8 +93,7 @@ class Project:
         return None
 
 
-def sync_project(project, keys, keyname):
-
+def get_project_play(project, keys, keyname, dry_run):
     sudoer_account = project.get_sudoer_account(keyname)
 
     logger.info('Syncing "' + project.name + '" using key "' + keyname + '"')
@@ -99,8 +112,6 @@ def sync_project(project, keys, keyname):
             # we skip since we are not authorized to update this user
             continue
 
-        remote_pass = user.acl['password'] if 'password' in user.acl else None
-
         # if we are authorized, let us update this user's keys
         authorized_key_names = []
         expired_key_names = []
@@ -114,62 +125,162 @@ def sync_project(project, keys, keyname):
             else:
                 expired_key_names.append(key_name)
 
+        play = dict(
+            name="Key setting for " + user.name + " on " + project.name,
+            hosts=project.name,
+            gather_facts='no',
+            tasks=[],
+            remote_user=remote_user,
+        )
+        if use_sudo:
+            play["become"] = True
         if len(expired_key_names) > 0:
-            push_keys(
-                host_list=project.servers,
-                remote_user=remote_user,
-                remote_pass=remote_pass,
-                use_sudo=use_sudo,
-                username=user.name,
-                keys=[keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names],
-                delete=True
-            )
-            logger.info(' - ' + user.name + ' expired for ' + ", ".join(expired_key_names) + ' synced through ' + remote_user)
+            if dry_run:
+                play['tasks'].append(
+                    dict(
+                        action=dict(
+                            module='shell',
+                            args="""
+                                echo Running authorized_key with args user: {user},
+                                key: {key},
+                                state: "absent"
+                                """.format(
+                                user=user.name,
+                                key="\n".join(
+                                    [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names])
+                            ).replace("\n", " "),
+                        ),
+                        register='shell_out'
+                    )
+                )
+                play['tasks'].append(
+                    dict(action=dict(module='debug', args=dict(msg='{{shell_out.stdout}}'))))
+            else:
+                play['tasks'].append(
+                    dict(
+                        action=dict(
+                            module='authorized_key',
+                            args=dict(
+                                user=user.name,
+                                key="\n".join(
+                                    [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names]),
+                                state="absent"
+                            )
+                        )
+                    )
+                )
+            logger.info(' - ' + user.name + ' expired for ' +
+                        ", ".join(expired_key_names) + ' synced through ' + remote_user)
 
         if len(authorized_key_names) > 0:
-            push_keys(
-                host_list=project.servers,
-                remote_user=remote_user,
-                remote_pass=remote_pass,
-                use_sudo=use_sudo,
-                username=user.name,
-                keys=[keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]
-            )
-            logger.info(' - ' + user.name + ' authorized for ' + ", ".join(authorized_key_names) + ' synced through ' + remote_user)
+            if dry_run:
+                play['tasks'].append(
+                    dict(
+                        action=dict(
+                            module='shell',
+                            args="""
+                                echo Running authorized_key with args user: {user},
+                                key: {key},
+                                state: "present"
+                                """.format(
+                                user=user.name,
+                                key="\n".join(
+                                    [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]),
+                            ).replace("\n", " "),
+                        ),
+                        register='shell_out'
+                    )
+                )
+                play['tasks'].append(
+                    dict(action=dict(module='debug', args=dict(msg='{{shell_out.stdout}}'))))
+            else:
+                play['tasks'].append(
+                    dict(
+                        action=dict(
+                            module='authorized_key',
+                            args=dict(
+                                user=user.name,
+                                key="\n".join(
+                                    [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]),
+                                state="present"
+                            )
+                        )
+                    )
+                )
+            logger.info(' - ' + user.name + ' authorized for ' +
+                        ", ".join(authorized_key_names) + ' synced through ' + remote_user)
+        return play
 
 
-def push_keys(host_list, remote_user, remote_pass, use_sudo, username, keys, delete=False):
-    if delete:
-        state = "absent"
-    else:
-        state = "present"
+class ResultCallback(CallbackBase):
+    failures = 0
 
-    ret = ansible.runner.Runner(
-       module_name      = 'authorized_key',
-       module_args      = {
-                            'user': username,
-                            'state': state,
-                            'key': "\n".join(keys)
-                          },
-       host_list        = host_list,
-       remote_user      = remote_user,
-       remote_pass      = remote_pass,
-       become           = use_sudo
-    ).run()
-    logger.debug(ret)
-    if ret['dark'] != {}:
-        logger.error(ret['dark'])
+    def v2_runner_on_ok(self, result, **kwargs):
+        logger.debug("SUCCESS for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
+
+    def v2_runner_on_failed(self, result, ignore_errors=False):
+        self.failures += 1
+        logger.error("FAILURE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
+        logger.error("Command was " + json.dumps(result._task._ds["action"], indent=2))
 
 
+def sync_acl(dl, acl, keys, keyname, project_name, dry_run):
+    ansible_plays = []
 
-
-def sync_acl(acl, keys, keyname, project_name=None):
-
+    # First, collect all tasks to perform
     for project_yaml in acl:
         project = Project(project_yaml)
         if project_name and project.name != project_name:
             continue
-        sync_project(project, keys, keyname)
+        ansible_plays.append(get_project_play(project, keys, keyname, dry_run))
+    logger.debug('Collected ' + str(len(ansible_plays)) + ' Ansible plays. Now running...')
+
+    # Second, configure everything for Ansible
+    # We must use a file for the inventory. It will be deleted at the end.
+    inventory_template = """
+{% for project in projects %}
+[{{project.name}}]
+{{ project.servers|join("\n")}}
+{% endfor %}
+    """
+    inventory_file = NamedTemporaryFile(delete=False)
+    inventory_file.write(jinja2.Template(inventory_template).render({
+        'projects': acl
+    })
+    )
+    inventory_file.close()
+    inventory = InventoryManager(loader=dl, sources=[inventory_file.name])
+
+    variable_manager = VariableManager(loader=dl, inventory=inventory)
+
+    Options = namedtuple('Options', ['connection', 'module_path', 'forks', 'become', 'become_method', 'become_user',
+                                     'check', 'diff'])
+    options = Options(forks=100, connection="ssh", module_path="", become=None, become_method="sudo",
+                      become_user="root", check=False, diff=False)
+
+    # We use a basic reporter, that counts the failures to make the program exit 1 in case of failure
+    results_callback = ResultCallback()
+
+    tqm = None
+    try:
+        tqm = TaskQueueManager(
+            inventory=inventory,
+            variable_manager=variable_manager,
+            loader=dl,
+            options=options,
+            passwords=None,
+            stdout_callback=results_callback,  # Use our custom callback
+            # instead of the ``default`` callback plugin
+        )
+        for play in ansible_plays:
+            tqm.run(Play().load(
+                play, variable_manager=variable_manager, loader=dl))
+    finally:
+        if tqm is not None:
+            os.unlink(inventory_file.name)
+            tqm.cleanup()
+            if results_callback.failures > 0:
+                exit(1)
 
 
 def main(argv=None):
@@ -185,11 +296,12 @@ def main(argv=None):
     h1.setLevel(getattr(logging, flags.logging_level))
     logger.addHandler(h1)
 
+    dl = DataLoader()
     # load data
-    acl = utils.parse_yaml_from_file(flags.acl)['acl']
-    keys = utils.parse_yaml_from_file(flags.keys)['keys']
+    acl = dl.load_from_file(flags.acl)['acl']
+    keys = dl.load_from_file(flags.keys)['keys']
 
-    sync_acl(acl, keys, flags.key_name, flags.project)
+    sync_acl(dl, acl, keys, flags.key_name, flags.project, flags.dry_run)
 
 
 if __name__ == '__main__':
