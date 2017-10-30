@@ -14,31 +14,31 @@ logger = logging.getLogger(__name__)
 
 # Parser for command-line arguments.
 parser = argparse.ArgumentParser(
-    description     = __doc__,
-    formatter_class = argparse.RawDescriptionHelpFormatter
+    description=__doc__,
+    formatter_class=argparse.RawDescriptionHelpFormatter
 )
 
 parser.add_argument(
     '--key-name',
-    default     = getpass.getuser(),
-    help        = 'The name of your key in the file containing all keys'
+    default=getpass.getuser(),
+    help='The name of your key in the file containing all keys'
 )
 
 parser.add_argument(
     '--project',
-    default     = None,
-    help        = 'Sync a particular project'
+    default=None,
+    help='Sync a particular project'
 )
 parser.add_argument(
     '--acl',
-    default     = os.path.join(os.getcwd(), 'acl.yml'),
-    help        = 'Name of the file containing all access informations'
+    default=os.path.join(os.getcwd(), 'acl.yml'),
+    help='Name of the file containing all access informations'
 )
 
 parser.add_argument(
     '--keys',
-    default = os.path.join(os.getcwd(), 'keys.yml'),
-    help    = 'Name of the file containing all keys'
+    default=os.path.join(os.getcwd(), 'keys.yml'),
+    help='Name of the file containing all keys'
 )
 
 parser.add_argument(
@@ -52,7 +52,7 @@ parser.add_argument(
 class User:
     def __init__(self, name, acl):
         self.name = name
-        self.acl  = acl
+        self.acl = acl
 
     def is_sudoer(self):
         if 'sudoer' in self.acl:
@@ -66,9 +66,9 @@ class User:
 
 class Project:
     def __init__(self, project_yaml):
-        self.name    = project_yaml['name']
+        self.name = project_yaml['name']
         self.servers = project_yaml['servers']
-        self.users   = []
+        self.users = []
         for username, useracl in project_yaml['users'].items():
             self.users.append(User(username, useracl))
 
@@ -103,7 +103,7 @@ def sync_project(project, keys, keyname):
 
         # if we are authorized, let us update this user's keys
         authorized_key_names = []
-        expired_key_names    = []
+        expired_key_names = []
         for key_name in user.acl['authorized_keys']:
             if not key_name in keys:
                 logger.error(key_name + ' missing from keys file')
