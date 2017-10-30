@@ -97,6 +97,7 @@ def get_project_play(project, keys, keyname, dry_run):
     sudoer_account = project.get_sudoer_account(keyname)
 
     logger.info('Syncing "' + project.name + '" using key "' + keyname + '"')
+    plays = []
 
     for user in project.users:
         if user.is_authorized(keyname):
@@ -209,7 +210,8 @@ def get_project_play(project, keys, keyname, dry_run):
                 )
             logger.info(' - ' + user.name + ' authorized for ' +
                         ", ".join(authorized_key_names) + ' synced through ' + remote_user)
-        return play
+        plays.append(play)
+    return plays
 
 
 class ResultCallback(CallbackBase):
@@ -232,7 +234,7 @@ def sync_acl(dl, acl, keys, keyname, project_name, dry_run):
         project = Project(project_yaml)
         if project_name and project.name != project_name:
             continue
-        ansible_plays.append(get_project_play(project, keys, keyname, dry_run))
+        ansible_plays.extend(get_project_play(project, keys, keyname, dry_run))
     logger.debug('Collected ' + str(len(ansible_plays)) + ' Ansible plays. Now running...')
 
     # Second, configure everything for Ansible
