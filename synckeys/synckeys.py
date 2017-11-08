@@ -117,7 +117,7 @@ def get_project_play(project, keys, keyname, dry_run):
         authorized_key_names = []
         expired_key_names = []
         for key_name in user.acl['authorized_keys']:
-            if not key_name in keys:
+            if key_name not in keys:
                 logger.error(key_name + ' missing from keys file')
                 continue
 
@@ -136,20 +136,15 @@ def get_project_play(project, keys, keyname, dry_run):
         if use_sudo:
             play["become"] = True
         if len(expired_key_names) > 0:
+            keys = [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names]
             if dry_run:
                 play['tasks'].append(
                     dict(
                         action=dict(
-                            module='shell',
-                            args="""
-                                echo Running authorized_key with args user: {user},
-                                key: {key},
-                                state: "absent"
-                                """.format(
-                                user=user.name,
-                                key="\n".join(
-                                    [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names])
-                            ).replace("\n", " "),
+                            module='command',
+                            args="echo 'Running authorized_key with args user " + user.name + "," +
+                                 " keys " + ",".join(expired_key_names) + "," +
+                                 " and state absent'",
                         ),
                         register='shell_out'
                     )
@@ -163,8 +158,7 @@ def get_project_play(project, keys, keyname, dry_run):
                             module='authorized_key',
                             args=dict(
                                 user=user.name,
-                                key="\n".join(
-                                    [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names]),
+                                key="\n".join(keys),
                                 state="absent"
                             )
                         )
@@ -174,21 +168,16 @@ def get_project_play(project, keys, keyname, dry_run):
                         ", ".join(expired_key_names) + ' synced through ' + remote_user)
 
         if len(authorized_key_names) > 0:
+            keys = [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]
             if dry_run:
                 play['tasks'].append(
                     dict(
                         action=dict(
-                            module='shell',
-                            args="""
-                                echo Running authorized_key with args user: {user},
-                                key: {key},
-                                state: "present"
-                                """.format(
-                                user=user.name,
-                                key="\n".join(
-                                    [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]),
-                            ).replace("\n", " "),
-                        ),
+                            module='command',
+                            args="echo 'Running authorized_key with args user " + user.name + "," +
+                                 " keys " + ",".join(authorized_key_names) + "," +
+                                 " and state present'",
+                         ),
                         register='shell_out'
                     )
                 )
@@ -201,8 +190,7 @@ def get_project_play(project, keys, keyname, dry_run):
                             module='authorized_key',
                             args=dict(
                                 user=user.name,
-                                key="\n".join(
-                                    [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]),
+                                key="\n".join(keys),
                                 state="present"
                             )
                         )
