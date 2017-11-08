@@ -136,7 +136,7 @@ def get_project_play(project, keys, keyname, dry_run):
         if use_sudo:
             play["become"] = True
         if len(expired_key_names) > 0:
-            keys = [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names]
+            expired_keys = [keys[key_name]['key'] + ' ' + key_name for key_name in expired_key_names]
             if dry_run:
                 play['tasks'].append(
                     dict(
@@ -158,7 +158,7 @@ def get_project_play(project, keys, keyname, dry_run):
                             module='authorized_key',
                             args=dict(
                                 user=user.name,
-                                key="\n".join(keys),
+                                key="\n".join(expired_keys),
                                 state="absent"
                             )
                         )
@@ -168,7 +168,7 @@ def get_project_play(project, keys, keyname, dry_run):
                         ", ".join(expired_key_names) + ' synced through ' + remote_user)
 
         if len(authorized_key_names) > 0:
-            keys = [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]
+            authorized_keys = [keys[key_name]['key'] + ' ' + key_name for key_name in authorized_key_names]
             if dry_run:
                 play['tasks'].append(
                     dict(
@@ -190,7 +190,7 @@ def get_project_play(project, keys, keyname, dry_run):
                             module='authorized_key',
                             args=dict(
                                 user=user.name,
-                                key="\n".join(keys),
+                                key="\n".join(authorized_keys),
                                 state="present"
                             )
                         )
