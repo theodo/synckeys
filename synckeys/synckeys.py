@@ -213,6 +213,10 @@ class ResultCallback(CallbackBase):
         logger.error("FAILURE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
         logger.error("Command was " + json.dumps(result._task._ds["action"], indent=2))
 
+    def v2_runner_on_unreachable(self, result):
+        self.failures += 1
+        logger.error("UNREACHABLE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
+
 
 def sync_acl(dl, acl, keys, keyname, project_name, dry_run):
     ansible_plays = []
