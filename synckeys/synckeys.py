@@ -60,6 +60,11 @@ parser.add_argument(
     default=False
 )
 
+parser.add_argument(
+    '--private-key',
+    dest='private_key'
+)
+
 
 # The unix user (e.g. www-data, operator)
 # not the Theodoer user !
@@ -217,8 +222,7 @@ class ResultCallback(CallbackBase):
         self.failures += 1
         logger.error("UNREACHABLE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
 
-
-def sync_acl(dl, acl, keys, keyname, project_name, dry_run):
+def sync_acl(dl, acl, keys, keyname, project_name, dry_run, private_key):
     ansible_plays = []
 
     # First, collect all tasks to perform
@@ -231,15 +235,18 @@ def sync_acl(dl, acl, keys, keyname, project_name, dry_run):
 
     # Second, configure everything for Ansible
     # We must use a file for the inventory. It will be deleted at the end.
+
     inventory_template = """
 {% for project in projects %}
 [{{project.name}}]
-{{ project.servers|join("\n")}}
+{% for server in project.servers %}{{ server }} {% if private_key %} ansible_ssh_private_key_file={{ private_key }} {% endif %}
+{% endfor %}
 {% endfor %}
     """
     inventory_file = NamedTemporaryFile(delete=False)
     inventory_file.write(jinja2.Template(inventory_template).render({
-        'projects': acl
+        'projects': acl,
+        'private_key': private_key
     })
     )
     inventory_file.close()
@@ -295,7 +302,7 @@ def main(argv=None):
     acl = dl.load_from_file(flags.acl)['acl']
     keys = dl.load_from_file(flags.keys)['keys']
 
-    sync_acl(dl, acl, keys, flags.key_name, flags.project, flags.dry_run)
+    sync_acl(dl, acl, keys, flags.key_name, flags.project, flags.dry_run, flags.private_key)
 
 
 if __name__ == '__main__':
