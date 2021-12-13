@@ -43,3 +43,6 @@ docs/_build/
 
 # Key files
 *.yml
+
+.idea/
+env/

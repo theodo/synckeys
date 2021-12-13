@@ -5,6 +5,7 @@ from ansible.vars.manager import VariableManager
 from ansible.inventory.manager import InventoryManager
 from ansible.playbook.play import Play
 from ansible.executor.task_queue_manager import TaskQueueManager
+from ansible.parsing.ajson import AnsibleJSONDecoder
 from collections import namedtuple
 import os
 import getpass
@@ -63,6 +64,13 @@ parser.add_argument(
 parser.add_argument(
     '--private-key',
     dest='private_key'
+)
+
+parser.add_argument(
+    '--list-keys',
+    dest='list_keys',
+    action='store_true',
+    default=False
 )
 
 
@@ -124,6 +132,7 @@ def get_project_play(project, keys, keyname, dry_run):
         for key_name in user.acl['authorized_keys']:
             if key_name not in keys:
                 logger.error(key_name + ' missing from keys file')
+                expired_key_names.append(key_name)
                 continue
 
             if not keys[key_name]['expires'] or keys[key_name]['expires'] > datetime.datetime.now().date():
@@ -182,7 +191,7 @@ def get_project_play(project, keys, keyname, dry_run):
                             args="echo 'Running authorized_key with args user " + user.name + "," +
                                  " keys " + ",".join(authorized_key_names) + "," +
                                  " and state present'",
-                         ),
+                        ),
                         register='shell_out'
                     )
                 )
@@ -207,6 +216,48 @@ def get_project_play(project, keys, keyname, dry_run):
     return plays
 
 
+def get_project_list_keys_play(project, keyname):
+    sudoer_account = project.get_sudoer_account(keyname)
+
+    logger.info('Listing authorized keys in project "' + project.name + '" using key "' + keyname + '"')
+    plays = []
+
+    for user in project.users:
+        if user.is_authorized(keyname):
+            # we have direct access to this user, no need to use sudo
+            remote_user = user.name
+            use_sudo = False
+        elif sudoer_account:
+            logger.info('sudoer "' + sudoer_account.name + '"')
+            # we are allowed to update this user through the sudo user
+            remote_user = sudoer_account.name
+            use_sudo = True
+        else:
+            # we skip since we are not authorized to update this user
+            continue
+
+        play = dict(
+            name="List authorized keys for " + user.name + " on " + project.name,
+            hosts=project.name,
+            gather_facts='no',
+            tasks=[
+                dict(
+                    action=dict(
+                        module='command',
+                        args=dict(
+                            chdir="/home/" + user.name,
+                            cmd="cat .ssh/authorized_keys"
+                        )
+                    )
+                )
+            ],
+            remote_user=remote_user,
+            become=use_sudo
+        )
+        plays.append(play)
+    return plays
+
+
 class ResultCallback(CallbackBase):
     failures = 0
 
@@ -220,7 +271,22 @@ class ResultCallback(CallbackBase):
 
     def v2_runner_on_unreachable(self, result):
         self.failures += 1
-        logger.error("UNREACHABLE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
+        logger.error(
+            "UNREACHABLE for " + result._host.get_name() + " : " + self._dump_results(result._result, indent=2))
+
+
+class ListKeysResultCallback(ResultCallback):
+
+    def v2_runner_on_ok(self, result, **kwargs):
+        keys_string = json.loads(self._dump_results(result._result, indent=2), cls=AnsibleJSONDecoder)["stdout"]
+        key_names = [key.split(" ")[-1] for key in keys_string.split("\n")]
+        logger.info(
+            "\n"
+            + "#################################################################################################\n\n"
+            + "Server " + result._host.get_name() + "\n\n"
+            + "\n".join(key_names)
+        )
+
 
 def sync_acl(dl, acl, keys, keyname, project_name, dry_run, private_key):
     ansible_plays = []
@@ -231,19 +297,35 @@ def sync_acl(dl, acl, keys, keyname, project_name, dry_run, private_key):
         if project_name and project.name != project_name:
             continue
         ansible_plays.extend(get_project_play(project, keys, keyname, dry_run))
+    run_plays(dl, acl, private_key, ansible_plays, ResultCallback())
+
+
+def list_keys(dl, acl, keyname, project_name, private_key):
+    ansible_plays = []
+
+    # First, collect all tasks to perform
+    for project_yaml in acl:
+        project = Project(project_yaml)
+        if project_name and project.name != project_name:
+            continue
+        ansible_plays.extend(get_project_list_keys_play(project, keyname))
+    run_plays(dl, acl, private_key, ansible_plays, ListKeysResultCallback())
+
+
+def run_plays(dl, acl, private_key, ansible_plays, results_callback):
     logger.debug('Collected ' + str(len(ansible_plays)) + ' Ansible plays. Now running...')
 
     # Second, configure everything for Ansible
     # We must use a file for the inventory. It will be deleted at the end.
 
     inventory_template = """
-{% for project in projects %}
-[{{project.name}}]
-{% for server in project.servers %}{{ server }} {% if private_key %} ansible_ssh_private_key_file={{ private_key }} {% endif %}
-{% endfor %}
-{% endfor %}
-    """
-    inventory_file = NamedTemporaryFile(delete=False)
+    {% for project in projects %}
+    [{{project.name}}]
+    {% for server in project.servers %}{{ server }} {% if private_key %} ansible_ssh_private_key_file={{ private_key }} {% endif %}
+    {% endfor %}
+    {% endfor %}
+        """
+    inventory_file = NamedTemporaryFile(delete=False, mode="w")
     inventory_file.write(jinja2.Template(inventory_template).render({
         'projects': acl,
         'private_key': private_key
@@ -258,9 +340,6 @@ def sync_acl(dl, acl, keys, keyname, project_name, dry_run, private_key):
                                      'check', 'diff'])
     options = Options(forks=100, connection="ssh", module_path="", become=None, become_method="sudo",
                       become_user="root", check=False, diff=False)
-
-    # We use a basic reporter, that counts the failures to make the program exit 1 in case of failure
-    results_callback = ResultCallback()
 
     tqm = None
     try:
@@ -301,6 +380,10 @@ def main(argv=None):
     # load data
     acl = dl.load_from_file(flags.acl)['acl']
     keys = dl.load_from_file(flags.keys)['keys']
+
+    if flags.list_keys:
+        list_keys(dl, acl, flags.key_name, flags.project, flags.private_key)
+        return
 
     sync_acl(dl, acl, keys, flags.key_name, flags.project, flags.dry_run, flags.private_key)
 
